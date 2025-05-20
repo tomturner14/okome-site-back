@@ -40,7 +40,11 @@ build/Release
 
 # Dependency directories
 node_modules/
+/node_modules/.prisma/
 jspm_packages/
+
+# Prisma migration history
+/prisma/migrations/
 
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/
