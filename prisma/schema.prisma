@@ -21,72 +21,45 @@ model User {
   passwordHash  String
   phone         String?
   addresses     UserAddress[]
-  cartItems     CartItem[]
   orders        Order[]
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 }
 
 model UserAddress {
-  id             Int      @id @default(autoincrement())
-  user           User     @relation(fields: [userId], references: [id])
+  id             Int       @id @default(autoincrement())
+  user           User      @relation(fields: [userId], references: [id])
   userId         Int
   recipientName  String
   postalCode     String
   address1       String
   address2       String?
   phone          String
-  isDefault      Boolean  @default(false)
+  isDefault      Boolean   @default(false)
   orders         Order[]
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-}
-
-model Product {
-  id          Int      @id @default(autoincrement())
-  name        String
-  description String
-  price       Int
-  imageUrl    String
-  stock       Int
-  cartItems   CartItem[]
-  orderItems  OrderItem[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
-
-model CartItem {
-  id         Int      @id @default(autoincrement())
-  user       User?    @relation(fields: [userId], references: [id])
-  userId     Int?
-  sessionId  String?
-  product    Product  @relation(fields: [productId], references: [id])
-  productId  Int
-  quantity   Int
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 }
 
 model Order {
-  id          Int        @id @default(autoincrement())
-  user        User       @relation(fields: [userId], references: [id])
+  id          Int          @id @default(autoincrement())
+  user        User         @relation(fields: [userId], references: [id])
   userId      Int
-  address     UserAddress @relation(fields: [addressId], references: [id])
+  address     UserAddress  @relation(fields: [addressId], references: [id])
   addressId   Int
   totalPrice  Int
-  status      OrderStatus @default(pending)
-  orderedAt   DateTime    @default(now())
+  status      OrderStatus  @default(pending)
+  orderedAt   DateTime     @default(now())
   items       OrderItem[]
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 }
 
 model OrderItem {
   id         Int      @id @default(autoincrement())
   order      Order    @relation(fields: [orderId], references: [id])
   orderId    Int
-  product    Product  @relation(fields: [productId], references: [id])
-  productId  Int
+  productId  String   // Shopifyのproduct ID（例：gid://shopify/Product/12345）
   quantity   Int
   price      Int
 }

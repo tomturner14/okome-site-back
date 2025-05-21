@@ -143,27 +143,6 @@ exports.Prisma.UserAddressScalarFieldEnum = {
   updatedAt: 'updatedAt'
 };
 
-exports.Prisma.ProductScalarFieldEnum = {
-  id: 'id',
-  name: 'name',
-  description: 'description',
-  price: 'price',
-  imageUrl: 'imageUrl',
-  stock: 'stock',
-  createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
-};
-
-exports.Prisma.CartItemScalarFieldEnum = {
-  id: 'id',
-  userId: 'userId',
-  sessionId: 'sessionId',
-  productId: 'productId',
-  quantity: 'quantity',
-  createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
-};
-
 exports.Prisma.OrderScalarFieldEnum = {
   id: 'id',
   userId: 'userId',
@@ -208,14 +187,8 @@ exports.Prisma.UserAddressOrderByRelevanceFieldEnum = {
   phone: 'phone'
 };
 
-exports.Prisma.ProductOrderByRelevanceFieldEnum = {
-  name: 'name',
-  description: 'description',
-  imageUrl: 'imageUrl'
-};
-
-exports.Prisma.CartItemOrderByRelevanceFieldEnum = {
-  sessionId: 'sessionId'
+exports.Prisma.OrderItemOrderByRelevanceFieldEnum = {
+  productId: 'productId'
 };
 exports.OrderStatus = exports.$Enums.OrderStatus = {
   pending: 'pending',
@@ -226,8 +199,6 @@ exports.OrderStatus = exports.$Enums.OrderStatus = {
 exports.Prisma.ModelName = {
   User: 'User',
   UserAddress: 'UserAddress',
-  Product: 'Product',
-  CartItem: 'CartItem',
   Order: 'Order',
   OrderItem: 'OrderItem'
 };
