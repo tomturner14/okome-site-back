@@ -1,11 +1,14 @@
 import express from "express";
 import dotenv from "dotenv";
 import usersRouters from "./routes/users.js"
+import { sessionMiddleware } from "./middlewares/session.js";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+
+app.use(sessionMiddleware);
 
 // JSONボディをパースできるようにする
 app.use(express.json());
