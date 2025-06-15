@@ -1,6 +1,8 @@
 import express from "express";
 import dotenv from "dotenv";
 import usersRouters from "./routes/users.js";
+import addressRoutes from "./routes/addresses.js";
+import ordersRoutes from "./routes/orders.js";
 import { sessionMiddleware } from "./middlewares/session.js";
 import prisma from "./lib/prisma.js";
 import bcrypt from "bcrypt";
@@ -20,7 +22,6 @@ app.post("/api/signup", async (req, res) => {
     console.log("Signup request:", req.body);
     const { email, password, name, phone } = req.body;
 
-    // バリデーション
     if (!email || !password || !name) {
       return res.status(400).json({ error: "Missing required fields" });
     }
@@ -29,7 +30,6 @@ app.post("/api/signup", async (req, res) => {
       return res.status(400).json({ error: "Password must be at least 6 characters" });
     }
 
-    // 既存ユーザーチェック
     const existingUser = await prisma.user.findUnique({
       where: { email }
     });
@@ -38,10 +38,8 @@ app.post("/api/signup", async (req, res) => {
       return res.status(400).json({ error: "User already exists" });
     }
 
-    // パスワードハッシュ化
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // ユーザー作成
     const user = await prisma.user.create({
       data: {
         email,
@@ -79,7 +77,6 @@ app.post("/api/signin", async (req, res) => {
       return res.status(400).json({ error: "Missing email or password" });
     }
 
-    // ユーザー検索
     const user = await prisma.user.findUnique({
       where: { email }
     });
@@ -88,13 +85,11 @@ app.post("/api/signin", async (req, res) => {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    // パスワード照合
     const isPasswordValid = await bcrypt.compare(password, user.hashed_password);
     if (!isPasswordValid) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    // セッショントークン生成（簡易版）
     const token = crypto.randomBytes(32).toString('hex');
 
     console.log("User signed in successfully:", user.id);
@@ -116,18 +111,13 @@ app.post("/api/signin", async (req, res) => {
   }
 });
 
-// ユーザー情報取得
+// ユーザー情報取得（仮認証）
 app.get("/api/me", async (req, res) => {
   try {
-    // 簡易的な認証チェック（本格的にはJWT等を使用）
     const token = req.headers.authorization?.replace('Bearer ', '');
-
     if (!token) {
       return res.status(401).json({ error: "No token provided" });
     }
-
-    // ここでは簡易版なので、実際のトークン検証は省略
-    // 本格的にはJWTやセッションDBで検証
 
     res.json({
       message: "This endpoint needs proper token validation",
@@ -139,17 +129,19 @@ app.get("/api/me", async (req, res) => {
   }
 });
 
-// その他のルーティング
+// 各種ルート登録
 app.use("/users", usersRouters);
+app.use("/api/addresses", addressRoutes);
+app.use("/api/orders", ordersRoutes);
 
 app.get("/", (_req, res) => {
   res.send("Hello from okome-backend with bcrypt authentication!");
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server is running at http://localhost:4000`);
-  console.log(`📍 Auth endpoints:`);
-  console.log(`   - POST /api/signup`);
-  console.log(`   - POST /api/signin`);
-  console.log(`   - GET /api/me`);
+  console.log(`🚀 Server is running at http://localhost:${PORT}`);
+  console.log("📍 Auth endpoints:");
+  console.log("   - POST /api/signup");
+  console.log("   - POST /api/signin");
+  console.log("   - GET /api/me");
 });
