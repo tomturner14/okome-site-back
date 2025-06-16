@@ -5,27 +5,28 @@ import { requireUser } from "../middlewares/requireUser.js";
 
 const router = Router();
 
-router.use(requireUser); // 認証が必要
+router.use(requireUser); // 全ルートに認証を適用
 
-// GET /api/addresses
 router.get("/", async (req, res) => {
+  const userId = req.session.userId!;
   const addresses = await prisma.userAddress.findMany({
-    where: { user_id: req.user.id },
+    where: { user_id: userId },
     orderBy: { created_at: "desc" },
   });
   res.json(addresses);
 });
 
-// POST /api/addresses
 router.post("/", async (req, res) => {
+  const userId = req.session.userId!;
   const parsed = addressSchema.safeParse(req.body);
+
   if (!parsed.success) {
-    return res.status(400).json({ error: "バリデーションエラー", details: parsed.error.format() });
+    return res.status(400).json({ error: "バリデーション失敗", details: parsed.error.format() });
   }
 
   const address = await prisma.userAddress.create({
     data: {
-      user_id: req.user.id,
+      user_id: userId,
       ...parsed.data,
     },
   });

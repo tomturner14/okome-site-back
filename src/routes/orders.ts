@@ -5,26 +5,21 @@ import { requireUser } from "../middlewares/requireUser.js";
 
 const router = Router();
 
-router.use(requireUser); // 全体に認証を適用
+router.use(requireUser);
 
-// POST /api/orders
 router.post("/", async (req, res) => {
+  const userId = req.session.userId!;
   const parsed = orderSchema.safeParse(req.body);
+
   if (!parsed.success) {
-    return res.status(400).json({ error: "バリデーションエラー", details: parsed.error.format() });
+    return res.status(400).json({ error: "バリデーション失敗", details: parsed.error.format() });
   }
 
-  const {
-    address_id,
-    total_price,
-    shopify_order_id,
-    ordered_at,
-    items,
-  } = parsed.data;
+  const { address_id, total_price, shopify_order_id, ordered_at, items } = parsed.data;
 
   const order = await prisma.order.create({
     data: {
-      user_id: req.user.id,
+      user_id: userId,
       address_id,
       total_price,
       shopify_order_id,
@@ -39,9 +34,7 @@ router.post("/", async (req, res) => {
         })),
       },
     },
-    include: {
-      items: true,
-    },
+    include: { items: true },
   });
 
   res.status(201).json({ success: true, order });
