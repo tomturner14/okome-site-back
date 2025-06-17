@@ -5,6 +5,7 @@ import addressRoutes from "./routes/addresses.js";
 import ordersRoutes from "./routes/orders.js";
 import authRoutes from "./routes/auth.js";
 import usersRouters from "./routes/users.js";
+import webhookRoutes from "./routes/webhook.js";
 import prisma from "./lib/prisma.js";
 
 dotenv.config();
@@ -34,6 +35,7 @@ app.use("/api/auth", authRoutes);
 // 住所・注文・ユーザー関連ルート
 app.use("/api/addresses", addressRoutes);
 app.use("/api/orders", ordersRoutes);
+app.use("/webhook", webhookRoutes);
 app.use("/users", usersRouters);
 
 app.get("/", (_req, res) => {
