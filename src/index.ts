@@ -1,6 +1,7 @@
 import express from "express";
 import dotenv from "dotenv";
 import session from "express-session";
+import bodyParser from "body-parser";
 import addressRoutes from "./routes/addresses.js";
 import ordersRoutes from "./routes/orders.js";
 import authRoutes from "./routes/auth.js";
@@ -13,6 +14,10 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+// Webhook用（application/json を raw で取得）
+app.use("/webhook", bodyParser.raw({ type: "application/json" }));
+
+// 通常のAPI用（JSONをパース）
 app.use(express.json());
 
 // セッション設定（bcrypt認証用）
@@ -29,15 +34,16 @@ app.use(
   })
 );
 
-// 認証ルート（ログイン・サインアップ・ログアウト）
+// 認証ルート
 app.use("/api/auth", authRoutes);
 
-// 住所・注文・ユーザー関連ルート
+// その他APIルート
 app.use("/api/addresses", addressRoutes);
 app.use("/api/orders", ordersRoutes);
-app.use("/webhook", webhookRoutes);
 app.use("/users", usersRouters);
+app.use("/webhook", webhookRoutes); // 👈 Webhookルート
 
+// 動作確認用
 app.get("/", (_req, res) => {
   res.send("okome-site backend is running.");
 });
