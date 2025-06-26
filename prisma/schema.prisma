@@ -85,3 +85,13 @@ model OrderItem {
 
   @@map("order_items")
 }
+
+model WebhookLog {
+  id         Int      @id @default(autoincrement())
+  topic      String
+  payload    Json
+  verified   Boolean
+  created_at DateTime @default(now())
+
+  @@map("webhook_logs")
+}
