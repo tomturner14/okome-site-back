@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -18,10 +15,10 @@ model User {
   phone           String?
   created_at      DateTime      @default(now())
   updated_at      DateTime      @updatedAt
-  
+
   addresses       UserAddress[]
   orders          Order[]
-  
+
   @@map("users")
 }
 
@@ -35,10 +32,10 @@ model UserAddress {
   phone          String
   created_at     DateTime @default(now())
   updated_at     DateTime @updatedAt
-  
+
   user           User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
   orders         Order[]
-  
+
   @@map("user_addresses")
 }
 
@@ -55,9 +52,10 @@ enum FulfillStatus {
 
 model Order {
   id               Int           @id @default(autoincrement())
-  user_id          Int
-  address_id       Int
+  user_id          Int?                          // ← null許容
+  address_id       Int?                          // ← null許容
   shopify_order_id String        @unique
+  order_number     Int
   total_price      Int
   status           OrderStatus   @default(pending)
   fulfill_status   FulfillStatus @default(unfulfilled)
@@ -65,11 +63,11 @@ model Order {
   cancelled_at     DateTime?
   created_at       DateTime      @default(now())
   updated_at       DateTime      @updatedAt
-  
-  user             User          @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  address          UserAddress   @relation(fields: [address_id], references: [id])
+
+  user             User?         @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  address          UserAddress?  @relation(fields: [address_id], references: [id], onDelete: SetNull)
   items            OrderItem[]
-  
+
   @@map("orders")
 }
 
@@ -81,8 +79,8 @@ model OrderItem {
   quantity   Int
   price      Int
   image_url  String
-  
+
   order      Order  @relation(fields: [order_id], references: [id], onDelete: Cascade)
-  
+
   @@map("order_items")
 }

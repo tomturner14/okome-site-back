@@ -1,35 +1,59 @@
 import { Router } from "express";
 import crypto from "crypto";
+import prisma from "../lib/prisma.js";
 
 const router = Router();
-
 const SHOPIFY_WEBHOOK_SECRET = process.env.SHOPIFY_WEBHOOK_SECRET!;
 
-router.post("/", async (req, res) => {
+router.post("/api/webhook", express.raw({ type: "application/json" }), async (req, res) => {
   const hmacHeader = req.get("X-Shopify-Hmac-Sha256") || "";
 
-  const body = req.body;
+  const rawBody = req.body as Buffer;
+
   const hash = crypto
     .createHmac("sha256", SHOPIFY_WEBHOOK_SECRET)
-    .update(body, "utf8")
+    .update(rawBody, "utf8")
     .digest("base64");
 
   const isVerified = hash === hmacHeader;
 
   if (!isVerified) {
-    console.error("Webhook signature mismatch");
-    return res.status(401).json({ error: "Webhook signature invalid" });
+    console.error("❌ Webhook signature mismatch");
+    return res.status(401).json({ error: "Invalid webhook signature" });
   }
 
   try {
-    const payload = JSON.parse(body.toString("utf8"));
-    console.log("✅ Webhook received:", payload);
-  } catch (e) {
-    console.error("Failed to parse webhook payload");
-    return res.status(400).send("Invalid payload");
-  }
+    const data = JSON.parse(rawBody.toString("utf8"));
 
-  res.status(200).send("OK");
+    // データベースへ保存
+    const order = await prisma.order.create({
+      data: {
+        shopify_order_id: String(data.id),
+        total_price: parseInt(data.total_price),
+        ordered_at: new Date(data.created_at),
+        cancelled_at: data.cancelled_at ? new Date(data.cancelled_at) : null,
+        user_id: null,
+        address_id: null,
+      },
+    });
+
+    const items = data.line_items.map((item: any) => ({
+      order_id: order.id,
+      product_id: String(item.product_id),
+      title: item.title,
+      quantity: item.quantity,
+      price: parseInt(item.price),
+      image_url: "",
+    }));
+
+    await prisma.orderItem.createMany({ data: items });
+
+    console.log("✅ Webhook order saved:", order.id);
+    return res.status(200).send("OK");
+  } catch (err) {
+    console.error("❌ Error processing webhook:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 export default router;
