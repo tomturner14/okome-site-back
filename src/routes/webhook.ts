@@ -1,16 +1,14 @@
-// src/routes/webhook.ts
 import { Router } from "express";
 import crypto from "crypto";
 
 const router = Router();
 
-// 環境変数からWebhookシークレット取得
 const SHOPIFY_WEBHOOK_SECRET = process.env.SHOPIFY_WEBHOOK_SECRET!;
 
 router.post("/", async (req, res) => {
   const hmacHeader = req.get("X-Shopify-Hmac-Sha256") || "";
-  const body = JSON.stringify(req.body);
 
+  const body = req.body;
   const hash = crypto
     .createHmac("sha256", SHOPIFY_WEBHOOK_SECRET)
     .update(body, "utf8")
@@ -19,11 +17,17 @@ router.post("/", async (req, res) => {
   const isVerified = hash === hmacHeader;
 
   if (!isVerified) {
+    console.error("Webhook signature mismatch");
     return res.status(401).json({ error: "Webhook signature invalid" });
   }
 
-  // Webhook内容をログ出力（本番では保存や処理へ）
-  console.log("✅ Webhook received:", req.body);
+  try {
+    const payload = JSON.parse(body.toString("utf8"));
+    console.log("✅ Webhook received:", payload);
+  } catch (e) {
+    console.error("Failed to parse webhook payload");
+    return res.status(400).send("Invalid payload");
+  }
 
   res.status(200).send("OK");
 });
