@@ -1,5 +1,5 @@
 import { Router } from "express";
-import prisma from ".../lib/prisma.js";
+import prisma from "../lib/prisma.js";
 import { m } from "node_modules/better-auth/dist/shared/better-auth.BTuiucL9.js";
 
 const router = Router();
@@ -18,3 +18,5 @@ router.get("/orders", async (req, res) => {
     orderBy: { ordered_at: "desc" },
   });
 })
+
+export default router;
