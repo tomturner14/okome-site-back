@@ -27,4 +27,24 @@ router.get("/", async (_req, res) => {
   res.json(users);
 });
 
+// GET /users/:id/orders - ユーザーの注文履歴取得
+router.get("/:id/orders", async (req, res) => {
+  const userId = Number(req.params.id);
+  if (Number.isNaN(userId)) {
+    return res.status(400).json({ error: "Invalid user ID" });
+  }
+
+  try {
+    const orders = await prisma.order.findMany({
+      where: { user_id: userId },
+      include: { items: true },
+      orderBy: { ordered_at: "desc" },
+    });
+    return res.json(orders);
+  } catch (err) {
+    console.error("Error fetching orders:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export default router;
