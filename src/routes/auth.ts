@@ -49,6 +49,15 @@ router.post("/login", async (req, res) => {
   res.json({ message: "ログイン成功", user: { id: user.id, name: user.name } });
 });
 
+//セッション状態確認用（ログインチェック）
+router.get("/session", (req, res) => {
+  if (req.session.user) {
+    res.json({ user: req.session.user });
+  } else {
+    res.status(401).json({ error: "Not logged in" });
+  }
+});
+
 // ログアウト
 router.post("/logout", (req, res) => {
   req.session.destroy((err) => {

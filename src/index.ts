@@ -8,6 +8,7 @@ import ordersRoutes from "./routes/orders.js";
 import authRoutes from "./routes/auth.js";
 import usersRouters from "./routes/users.js";
 import webhookRoutes from "./routes/webhook.js";
+import meRoutes from "./routes/me.js";
 
 dotenv.config();
 
@@ -40,6 +41,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/addresses", addressRoutes);
 app.use("/api/orders", ordersRoutes);
 app.use("/users", usersRouters);
+app.use("/api/me", meRoutes);
 
 // ✅ Webhookルート（raw bodyが必要なので最後に）
 app.use("/api/webhook", webhookRoutes);
