@@ -61,9 +61,12 @@ router.get("/session", (req, res) => {
 // ログアウト
 router.post("/logout", (req, res) => {
   req.session.destroy((err) => {
-    if (err) return res.status(500).json({ error: "ログアウトに失敗しました" });
-    res.clearCookie("connect.sid");
-    res.json({ message: "ログアウトしました" });
+    if (err) {
+      console.error("セッション破棄に失敗:", err);
+      return res.status(500).json({ error: "ログアウトに失敗しました" });
+    }
+    res.clearCookie("connect.sid"); //ここでセッションクッキー削除
+    res.status(200).json({ message: "ログアウトしました" });
   });
 });
 
