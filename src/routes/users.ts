@@ -1,50 +1,34 @@
-import express from "express";
+import { Router } from "express";
 import prisma from "../lib/prisma.js";
+import bcrypt from "bcrypt";
 
-const router = express.Router();
+const router = Router();
 
-// POST /users - 新規ユーザー登録
-router.post("/", async (req, res) => {
-  const { name, email } = req.body;
+// POST api/users/register - 新規ユーザー登録
+router.post("/register", async (req, res) => {
+  const { name, email, password } = req.body;
 
-  if (!name || !email) {
-    return res.status(400).json({ error: "name と email は必須です" });
+  if (!name || !email || !password) {
+    return res.status(400).json({ error: "すべての項目を入力してください" });
   }
 
-  try {
-    const user = await prisma.user.create({
-      data: { name, email }
-    });
-    res.status(201).json(user);
-  } catch (err) {
-    res.status(500).json({ error: "ユーザー作成に失敗しました", details: err });
-  }
-});
-
-// GET /users - 全ユーザー取得
-router.get("/", async (_req, res) => {
-  const users = await prisma.user.findMany();
-  res.json(users);
-});
-
-// GET /users/:id/orders - ユーザーの注文履歴取得
-router.get("/:id/orders", async (req, res) => {
-  const userId = Number(req.params.id);
-  if (Number.isNaN(userId)) {
-    return res.status(400).json({ error: "Invalid user ID" });
+  // 既存ユーザーの確認
+  const existingUser = await prisma.user.findUnique({ where: { email } });
+  if (existingUser) {
+    return res.status(400).json({ error: "このメールアドレスは既に使われています" });
   }
 
-  try {
-    const orders = await prisma.order.findMany({
-      where: { user_id: userId },
-      include: { items: true },
-      orderBy: { ordered_at: "desc" },
-    });
-    return res.json(orders);
-  } catch (err) {
-    console.error("Error fetching orders:", err);
-    return res.status(500).json({ error: "Internal server error" });
-  }
+  const hashed = await bcrypt.hash(password, 10);
+
+  await prisma.user.create({
+    data: {
+      name,
+      email,
+      hashed_password: hashed,
+    },
+  });
+
+  return res.status(200).json({ message: "ユーザー登録が完了しました" });
 });
 
 export default router;

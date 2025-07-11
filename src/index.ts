@@ -6,7 +6,7 @@ import bodyParser from "body-parser";
 import addressRoutes from "./routes/addresses.js";
 import ordersRoutes from "./routes/orders.js";
 import authRoutes from "./routes/auth.js";
-import usersRouters from "./routes/users.js";
+import usersRoutes from "./routes/users.js";
 import webhookRoutes from "./routes/webhook.js";
 import meRoutes from "./routes/me.js";
 
@@ -15,6 +15,7 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+// ✅ Webhook用（raw bodyが必要）
 app.use("/api/webhook", bodyParser.raw({ type: "application/json" }));
 
 // ✅ 通常のAPIでは JSON パース
@@ -28,25 +29,23 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: false, // 本番では true（HTTPSのみ）
+      secure: false, // 本番では true（HTTPS のみ）
       maxAge: 1000 * 60 * 60 * 24, // 1日
     },
   })
 );
 
-// ✅ 認証ルート
+// ✅ APIルート
 app.use("/api/auth", authRoutes);
-
-// ✅ その他APIルート
 app.use("/api/addresses", addressRoutes);
 app.use("/api/orders", ordersRoutes);
-app.use("/users", usersRouters);
+app.use("/api/users", usersRoutes);
 app.use("/api/me", meRoutes);
 
-// ✅ Webhookルート（raw bodyが必要なので最後に）
+// ✅ Webhookルート（最後に配置）
 app.use("/api/webhook", webhookRoutes);
 
-// ✅ 動作確認用ルート
+// ✅ 動作確認ルート
 app.get("/", (_req, res) => {
   res.send("okome-site backend is running.");
 });
