@@ -11,7 +11,7 @@ import meRoutes from "./routes/me.js";
 
 dotenv.config();
 const app = express();
-const PORT = process.env.PORT || 4000;
+const PORT = Number(process.env.PORT ?? 4000);
 
 app.use("/api/webhook", bodyParser.raw({ type: "*/*" }));
 
