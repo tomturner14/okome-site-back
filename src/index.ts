@@ -2,7 +2,6 @@ import express from "express";
 import dotenv from "dotenv";
 import session from "express-session";
 import bodyParser from "body-parser";
-
 import addressRoutes from "./routes/addresses.js";
 import ordersRoutes from "./routes/orders.js";
 import authRoutes from "./routes/auth.js";
@@ -11,17 +10,15 @@ import webhookRoutes from "./routes/webhook.js";
 import meRoutes from "./routes/me.js";
 
 dotenv.config();
-
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-// ✅ Webhook用（raw bodyが必要）
-app.use("/api/webhook", bodyParser.raw({ type: "application/json" }));
+app.use("/api/webhook", bodyParser.raw({ type: "*/*" }));
 
-// ✅ 通常のAPIでは JSON パース
+app.use("/api/webhook", webhookRoutes);
+
 app.use(express.json());
 
-// ✅ セッション設定
 app.use(
   session({
     secret: process.env.SESSION_SECRET!,
@@ -30,7 +27,7 @@ app.use(
     cookie: {
       httpOnly: true,
       secure: false, // 本番では true（HTTPS のみ）
-      maxAge: 1000 * 60 * 60 * 24, // 1日
+      maxAge: 1000 * 60 * 60 * 24 // 1日
     },
   })
 );
@@ -42,10 +39,6 @@ app.use("/api/orders", ordersRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/me", meRoutes);
 
-// ✅ Webhookルート（最後に配置）
-app.use("/api/webhook", webhookRoutes);
-
-// ✅ 動作確認ルート
 app.get("/", (_req, res) => {
   res.send("okome-site backend is running.");
 });
