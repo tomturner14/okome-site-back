@@ -2,6 +2,7 @@ import express from "express";
 import dotenv from "dotenv";
 import session from "express-session";
 import bodyParser from "body-parser";
+import cors from "cors";
 import addressRoutes from "./routes/addresses.js";
 import ordersRoutes from "./routes/orders.js";
 import authRoutes from "./routes/auth.js";
@@ -13,10 +14,15 @@ dotenv.config();
 const app = express();
 const PORT = Number(process.env.PORT ?? 4000);
 
+// Webhook(raw)を最優先
 app.use(["/api/webhook", "/webhook"], bodyParser.raw({ type: "*/*" }));
-
 app.use(["/api/webhook", "/webhook"], webhookRoutes);
 
+// CORS有効化（通常API用）
+const ORIGIN = process.env.CORS_ORIGIN ?? "http://localhost:3000";
+app.use(cors({ origin: ORIGIN, credentials: true }));
+
+// 通常リクエストのJSONパース
 app.use(express.json());
 
 app.use(
@@ -26,13 +32,14 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: false, // 本番では true（HTTPS のみ）
-      maxAge: 1000 * 60 * 60 * 24 // 1日
+      secure: isProd,
+      sameSite: isProd ? "none" : "lax",
+      maxAge: 1000 * 60 * 60 * 24,// 1日
     },
   })
 );
 
-// ✅ APIルート
+// APIルート
 app.use("/api/auth", authRoutes);
 app.use("/api/addresses", addressRoutes);
 app.use("/api/orders", ordersRoutes);
