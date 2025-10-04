@@ -13,9 +13,11 @@ import meRoutes from "./routes/me.js";
 dotenv.config();
 const app = express();
 const PORT = Number(process.env.PORT ?? 4000);
+const isProd = process.env.NODE_ENV === "production";
+app.set("trust proxy", 1);
 
 // Webhook(raw)を最優先
-app.use(["/api/webhook", "/webhook"], bodyParser.raw({ type: "*/*" }));
+app.use(["/api/webhook", "/webhook"], bodyParser.raw({ type: "*/*", limit: "2mb" }));
 app.use(["/api/webhook", "/webhook"], webhookRoutes);
 
 // CORS有効化（通常API用）
