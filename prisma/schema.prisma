@@ -8,16 +8,16 @@ datasource db {
 }
 
 model User {
-  id              Int           @id @default(autoincrement())
+  id              Int      @id @default(autoincrement())
   name            String
-  email           String        @unique
+  email           String   @unique
   hashed_password String
   phone           String?
-  created_at      DateTime      @default(now())
-  updated_at      DateTime      @updatedAt
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
 
-  addresses       UserAddress[]
-  orders          Order[]
+  addresses UserAddress[]
+  orders    Order[]
 
   @@map("users")
 }
@@ -33,8 +33,8 @@ model UserAddress {
   created_at     DateTime @default(now())
   updated_at     DateTime @updatedAt
 
-  user           User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  orders         Order[]
+  user   User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  orders Order[]
 
   @@map("user_addresses")
 }
@@ -65,9 +65,9 @@ model Order {
   created_at       DateTime      @default(now())
   updated_at       DateTime      @updatedAt
 
-  user             User?         @relation(fields: [user_id], references: [id], onDelete: SetNull)
-  address          UserAddress?  @relation(fields: [address_id], references: [id], onDelete: SetNull)
-  items            OrderItem[]
+  user    User?        @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  address UserAddress? @relation(fields: [address_id], references: [id], onDelete: SetNull)
+  items   OrderItem[]
 
   @@map("orders")
 }
@@ -81,7 +81,7 @@ model OrderItem {
   price      Int
   image_url  String
 
-  order      Order  @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  order Order @relation(fields: [order_id], references: [id], onDelete: Cascade)
 
   @@map("order_items")
 }

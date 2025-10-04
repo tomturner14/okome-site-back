@@ -13,9 +13,9 @@ dotenv.config();
 const app = express();
 const PORT = Number(process.env.PORT ?? 4000);
 
-app.use("/api/webhook", bodyParser.raw({ type: "*/*" }));
+app.use(["/api/webhook", "/webhook"], bodyParser.raw({ type: "*/*" }));
 
-app.use("/api/webhook", webhookRoutes);
+app.use(["/api/webhook", "/webhook"], webhookRoutes);
 
 app.use(express.json());
 
