@@ -9,6 +9,7 @@ import authRoutes from "./routes/auth.js";
 import usersRoutes from "./routes/users.js";
 import webhookRoutes from "./routes/webhook.js";
 import meRoutes from "./routes/me.js";
+import devRoutes from "./routes/dev.js";
 
 dotenv.config();
 const app = express();
@@ -34,12 +35,14 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: isProd,
-      sameSite: isProd ? "none" : "lax",
-      maxAge: 1000 * 60 * 60 * 24,// 1日
+      secure: false,
+      sameSite: "lax",
+      maxAge: 1000 * 60 * 60 * 24,
     },
   })
 );
+
+app.use("/api/dev", devRoutes);
 
 // APIルート
 app.use("/api/auth", authRoutes);
