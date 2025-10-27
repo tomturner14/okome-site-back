@@ -10,13 +10,12 @@ const router = Router();
 // 全ルート要ログイン
 router.use(requireUser);
 
-// 住所一覧
+/** 住所一覧 */
 router.get("/", async (req, res) => {
   res.set("Cache-Control", "no-store");
-  const userId: number = req.session.userId!; // ← number 確定
-
+  const userId = req.session.userId!;
   const rows = await prisma.userAddress.findMany({
-    where: { user_id: userId },           // Prisma のフィールド名に合わせる
+    where: { user_id: userId },
     orderBy: { created_at: "desc" },
     select: {
       id: true,
@@ -29,11 +28,10 @@ router.get("/", async (req, res) => {
       updated_at: true,
     },
   });
-
   return res.json(rows);
 });
 
-// 住所登録
+/** 住所登録 */
 router.post("/", async (req, res) => {
   res.set("Cache-Control", "no-store");
   const userId: number = req.session.userId!;
@@ -64,8 +62,32 @@ router.post("/", async (req, res) => {
         updated_at: true,
       },
     });
-
     return res.status(201).json(created);
+  } catch {
+    return sendError(res, "DB_ERROR");
+  }
+});
+
+/** 住所削除 */
+router.delete("/:id", async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const userId: number = req.session.userId!;
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    return sendError(res, "VALIDATION", "不正なIDです");
+  }
+
+  try {
+    const exists = await prisma.userAddress.findFirst({
+      where: { id, user_id: userId },
+      select: { id: true },
+    });
+    if (!exists) {
+      return sendError(res, "VALIDATION", "住所が見つかりません");
+    }
+
+    await prisma.userAddress.delete({ where: { id } });
+    return res.json({ ok: true });
   } catch {
     return sendError(res, "DB_ERROR");
   }
