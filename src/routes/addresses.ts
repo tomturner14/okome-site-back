@@ -1,4 +1,4 @@
-// backend/src/routes/addresses.ts
+// src/routes/addresses.ts
 import { Router } from "express";
 import prisma from "../lib/prisma.js";
 import { requireUser } from "../middlewares/requireUser.js";
@@ -10,14 +10,14 @@ const router = Router();
 // 全ルート要ログイン
 router.use(requireUser);
 
-/** 一覧 */
+/** 住所一覧 */
 router.get("/", async (req, res) => {
   res.set("Cache-Control", "no-store");
   const userId = req.session.userId as number;
 
   const rows = await prisma.userAddress.findMany({
     where: { user_id: userId },
-    orderBy: [{ is_default: "desc" }, { created_at: "desc" }],
+    orderBy: { created_at: "desc" },
     select: {
       id: true,
       recipient_name: true,
@@ -25,16 +25,16 @@ router.get("/", async (req, res) => {
       address_1: true,
       address_2: true,
       phone: true,
+      is_default: true,
       created_at: true,
       updated_at: true,
-      is_default: true, // ★ 返却
     },
   });
 
   return res.json(rows);
 });
 
-/** 追加 */
+/** 新規登録（is_default はここでは触らない） */
 router.post("/", async (req, res) => {
   res.set("Cache-Control", "no-store");
   const userId = req.session.userId as number;
@@ -53,7 +53,7 @@ router.post("/", async (req, res) => {
         address_1: String(parsed.data.address_1),
         address_2: parsed.data.address_2 ? String(parsed.data.address_2) : "",
         phone: String(parsed.data.phone),
-        // is_default は別エンドポイントで設定
+        // is_default は明示的に default 変更APIで設定
       },
       select: {
         id: true,
@@ -62,18 +62,19 @@ router.post("/", async (req, res) => {
         address_1: true,
         address_2: true,
         phone: true,
+        is_default: true,
         created_at: true,
         updated_at: true,
-        is_default: true, // ★ 返却
       },
     });
+
     return res.status(201).json(created);
   } catch {
     return sendError(res, "DB_ERROR");
   }
 });
 
-/** 更新 */
+/** 更新（通常の項目） */
 router.put("/:id", async (req, res) => {
   res.set("Cache-Control", "no-store");
   const userId = req.session.userId as number;
@@ -106,9 +107,9 @@ router.put("/:id", async (req, res) => {
         address_1: true,
         address_2: true,
         phone: true,
+        is_default: true,
         created_at: true,
         updated_at: true,
-        is_default: true, // ★ 返却
       },
     });
 
@@ -118,7 +119,7 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-/** 既定に設定（他を外す） */
+/** 既定の配送先に設定（1件のみ true） */
 router.put("/:id/default", async (req, res) => {
   res.set("Cache-Control", "no-store");
   const userId = req.session.userId as number;
@@ -133,13 +134,13 @@ router.put("/:id/default", async (req, res) => {
     if (!target) return sendError(res, "VALIDATION", "住所が存在しません");
 
     const updated = await prisma.$transaction(async (tx) => {
-      // まず全ての既定を外す
+      // まず全て false に
       await tx.userAddress.updateMany({
         where: { user_id: userId, NOT: { id } },
         data: { is_default: false },
       });
-      // 対象を既定に
-      return await tx.userAddress.update({
+      // 対象を true に
+      const row = await tx.userAddress.update({
         where: { id },
         data: { is_default: true },
         select: {
@@ -149,11 +150,12 @@ router.put("/:id/default", async (req, res) => {
           address_1: true,
           address_2: true,
           phone: true,
+          is_default: true,
           created_at: true,
           updated_at: true,
-          is_default: true,
         },
       });
+      return row;
     });
 
     return res.json(updated);
