@@ -2,8 +2,8 @@
 import { Router } from "express";
 import prisma from "../lib/prisma.js";
 import { requireUser } from "../middlewares/requireUser.js";
-import { addressSchema } from "../validators/address.js";
 import { sendError } from "../lib/errors.js";
+import { addressSchema } from "../validators/address.js";
 
 const router = Router();
 
@@ -13,7 +13,8 @@ router.use(requireUser);
 // 住所一覧
 router.get("/", async (req, res) => {
   res.set("Cache-Control", "no-store");
-  const userId: number = req.session.userId!;
+  const userId = req.session.userId as number;
+
   const rows = await prisma.userAddress.findMany({
     where: { user_id: userId },
     orderBy: { created_at: "desc" },
@@ -28,13 +29,14 @@ router.get("/", async (req, res) => {
       updated_at: true,
     },
   });
+
   return res.json(rows);
 });
 
 // 住所登録
 router.post("/", async (req, res) => {
   res.set("Cache-Control", "no-store");
-  const userId: number = req.session.userId!;
+  const userId = req.session.userId as number;
 
   const parsed = addressSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -58,12 +60,11 @@ router.post("/", async (req, res) => {
         address_1: true,
         address_2: true,
         phone: true,
-        created_at: true,
-        updated_at: true,
       },
     });
+
     return res.status(201).json(created);
-  } catch (_e) {
+  } catch {
     return sendError(res, "DB_ERROR");
   }
 });
@@ -71,10 +72,10 @@ router.post("/", async (req, res) => {
 // 住所更新
 router.put("/:id", async (req, res) => {
   res.set("Cache-Control", "no-store");
-  const userId: number = req.session.userId!;
+  const userId = req.session.userId as number;
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) {
-    return sendError(res, "VALIDATION", "id が不正です");
+    return sendError(res, "VALIDATION", "不正な ID です");
   }
 
   const parsed = addressSchema.safeParse(req.body);
@@ -84,13 +85,11 @@ router.put("/:id", async (req, res) => {
 
   try {
     // 自分のレコードか確認
-    const existing = await prisma.userAddress.findFirst({
+    const owned = await prisma.userAddress.findFirst({
       where: { id, user_id: userId },
       select: { id: true },
     });
-    if (!existing) {
-      return sendError(res, "VALIDATION", "住所が存在しません");
-    }
+    if (!owned) return sendError(res, "VALIDATION", "対象が見つかりません");
 
     const updated = await prisma.userAddress.update({
       where: { id },
@@ -108,12 +107,11 @@ router.put("/:id", async (req, res) => {
         address_1: true,
         address_2: true,
         phone: true,
-        created_at: true,
-        updated_at: true,
       },
     });
+
     return res.json(updated);
-  } catch (_e) {
+  } catch {
     return sendError(res, "DB_ERROR");
   }
 });
@@ -121,24 +119,22 @@ router.put("/:id", async (req, res) => {
 // 住所削除
 router.delete("/:id", async (req, res) => {
   res.set("Cache-Control", "no-store");
-  const userId: number = req.session.userId!;
+  const userId = req.session.userId as number;
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) {
-    return sendError(res, "VALIDATION", "id が不正です");
+    return sendError(res, "VALIDATION", "不正な ID です");
   }
 
   try {
-    const existing = await prisma.userAddress.findFirst({
+    const owned = await prisma.userAddress.findFirst({
       where: { id, user_id: userId },
       select: { id: true },
     });
-    if (!existing) {
-      return sendError(res, "VALIDATION", "住所が存在しません");
-    }
+    if (!owned) return sendError(res, "VALIDATION", "対象が見つかりません");
 
     await prisma.userAddress.delete({ where: { id } });
     return res.json({ ok: true });
-  } catch (_e) {
+  } catch {
     return sendError(res, "DB_ERROR");
   }
 });
