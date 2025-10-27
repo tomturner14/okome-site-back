@@ -6,27 +6,26 @@ import { sendError } from "../lib/errors.js";
 
 const router = Router();
 
-// すべて要ログイン
+// 認証必須
 router.use(requireUser);
 
 /**
- * GET /api/orders
- * ログインユーザーの注文一覧を返す
- * 返却形はフロントの OrderSchema / OrdersResponseSchema と揃える
+ * 現在ログイン中ユーザーの注文一覧
+ * レスポンス形はフロントの OrdersResponseSchema に合わせる
  */
 router.get("/", async (req, res) => {
-  res.set("Cache-Control", "no-store");
-
-  const userId = req.session.userId;
-  if (typeof userId !== "number") {
-    return sendError(res, "UNAUTHORIZED"); // 401
-  }
-
   try {
+    const userId = req.session.userId as number;
+
     const rows = await prisma.order.findMany({
       where: { user_id: userId },
       orderBy: { ordered_at: "desc" },
-      include: {
+      select: {
+        id: true,
+        total_price: true,
+        status: true,
+        fulfill_status: true,
+        ordered_at: true,
         items: {
           select: {
             title: true,
@@ -38,22 +37,23 @@ router.get("/", async (req, res) => {
       },
     });
 
+    // zod 側に合わせて整形（Date → ISO 文字列）
     const data = rows.map((o) => ({
       id: o.id,
       total_price: o.total_price,
-      status: String(o.status),
-      fulfill_status: String(o.fulfill_status),
+      status: o.status,
+      fulfill_status: o.fulfill_status,
       ordered_at: o.ordered_at.toISOString(),
-      items: (o.items ?? []).map((i) => ({
-        title: i.title,
-        quantity: i.quantity,
-        price: i.price,
-        image_url: i.image_url ?? "",
-      })),
+      items: o.items?.map((it) => ({
+        title: it.title,
+        quantity: it.quantity,
+        price: it.price,
+        image_url: it.image_url ?? "",
+      })) ?? [],
     }));
 
-    return res.json(data);
-  } catch {
+    res.json(data);
+  } catch (e) {
     return sendError(res, "DB_ERROR");
   }
 });
