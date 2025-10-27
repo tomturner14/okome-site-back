@@ -1,5 +1,6 @@
 import { Router } from "express";
 import prisma from "../lib/prisma.js";
+import { sendError } from "../lib/errors.js";
 
 const router = Router();
 
@@ -14,14 +15,15 @@ router.get("/", async (req, res) => {
   if (!loggedIn) {
     return res.json({ loggedIn: false, sessionPing, user: null });
   }
+
   try {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, email: true, name: true },
     });
     return res.json({ loggedIn: true, sessionPing, user: user ?? null });
-  } catch (e) {
-    return res.status(500).json({ loggedIn: false, sessionPing, user: null, error: "DB_ERROR" });
+  } catch {
+    return sendError(res, "DB_ERROR");
   }
 });
 

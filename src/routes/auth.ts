@@ -1,7 +1,7 @@
 import { Router } from "express";
 import prisma from "../lib/prisma.js";
 import bcrypt from "bcryptjs";
-import { sendError } from "../lib/sendError.js";
+import { sendError } from "../lib/errors.js";
 
 const router = Router();
 
@@ -9,17 +9,17 @@ const router = Router();
 router.post("/register", async (req, res) => {
   const { email, password, name } = req.body ?? {};
   if (!email || !password) {
-    return sendError(res, 400, "VALIDATION_ERROR", "email と password は必須です");
+    return sendError(res, "VALIDATION", "email と password は必須です");
   }
   if (String(password).length < 6) {
-    return sendError(res, 400, "VALIDATION_ERROR", "password は 6 文字以上にしてください");
+    return sendError(res, "WEAK_PASSWORD");
   }
 
   try {
     const normalized = String(email).trim().toLowerCase();
     const existing = await prisma.user.findUnique({ where: { email: normalized } });
     if (existing) {
-      return sendError(res, 409, "ALREADY_EXISTS", "既に登録されています");
+      return sendError(res, "EMAIL_ALREADY_REGISTERED");
     }
 
     const hashed_password = await bcrypt.hash(String(password), 12);
@@ -30,8 +30,8 @@ router.post("/register", async (req, res) => {
 
     (req.session as any).userId = user.id;
     return res.json({ ok: true, user });
-  } catch (e) {
-    return sendError(res, 500, "DB_ERROR", "サーバー内部でエラーが発生しました");
+  } catch {
+    return sendError(res, "DB_ERROR");
   }
 });
 
@@ -39,7 +39,7 @@ router.post("/register", async (req, res) => {
 router.post("/login", async (req, res) => {
   const { email, password } = req.body ?? {};
   if (!email || !password) {
-    return sendError(res, 400, "VALIDATION_ERROR", "email と password は必須です");
+    return sendError(res, "VALIDATION", "email と password は必須です");
   }
 
   try {
@@ -47,18 +47,18 @@ router.post("/login", async (req, res) => {
     const user = await prisma.user.findUnique({ where: { email: normalized } });
 
     if (!user || !user.hashed_password) {
-      return sendError(res, 401, "INVALID_CREDENTIALS", "メールまたはパスワードが違います");
+      return sendError(res, "INVALID_EMAIL_OR_PASSWORD");
     }
 
     const ok = await bcrypt.compare(String(password), user.hashed_password);
     if (!ok) {
-      return sendError(res, 401, "INVALID_CREDENTIALS", "メールまたはパスワードが違います");
+      return sendError(res, "INVALID_EMAIL_OR_PASSWORD");
     }
 
     (req.session as any).userId = user.id;
     return res.json({ ok: true, user: { id: user.id, email: user.email, name: user.name } });
-  } catch (e) {
-    return sendError(res, 500, "DB_ERROR", "サーバー内部でエラーが発生しました");
+  } catch {
+    return sendError(res, "DB_ERROR");
   }
 });
 
