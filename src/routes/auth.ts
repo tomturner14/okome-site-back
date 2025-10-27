@@ -1,73 +1,71 @@
 import { Router } from "express";
-import bcrypt from "bcrypt";
 import prisma from "../lib/prisma.js";
+import bcrypt from "bcryptjs";
+import { sendError } from "../lib/sendError.js";
 
 const router = Router();
 
-// サインアップ
-router.post("/signup", async (req, res) => {
-  const { name, email, password, phone } = req.body;
-
-  if (!name || !email || !password) {
-    return res.status(400).json({ error: "名前、メール、パスワードは必須です" });
+// 会員登録
+router.post("/register", async (req, res) => {
+  const { email, password, name } = req.body ?? {};
+  if (!email || !password) {
+    return sendError(res, 400, "VALIDATION_ERROR", "email と password は必須です");
+  }
+  if (String(password).length < 6) {
+    return sendError(res, 400, "VALIDATION_ERROR", "password は 6 文字以上にしてください");
   }
 
-  const existingUser = await prisma.user.findUnique({ where: { email } });
-  if (existingUser) {
-    return res.status(400).json({ error: "このメールアドレスは既に登録されています" });
+  try {
+    const normalized = String(email).trim().toLowerCase();
+    const existing = await prisma.user.findUnique({ where: { email: normalized } });
+    if (existing) {
+      return sendError(res, 409, "ALREADY_EXISTS", "既に登録されています");
+    }
+
+    const hashed_password = await bcrypt.hash(String(password), 12);
+    const user = await prisma.user.create({
+      data: { email: normalized, name: name ?? "", hashed_password },
+      select: { id: true, email: true, name: true },
+    });
+
+    (req.session as any).userId = user.id;
+    return res.json({ ok: true, user });
+  } catch (e) {
+    return sendError(res, 500, "DB_ERROR", "サーバー内部でエラーが発生しました");
   }
-
-  const hashedPassword = await bcrypt.hash(password, 10);
-  const newUser = await prisma.user.create({
-    data: {
-      name,
-      email,
-      phone,
-      hashed_password: hashedPassword,
-    },
-  });
-
-  req.session.userId = newUser.id;
-  res.status(201).json({ message: "登録成功", user: { id: newUser.id, name: newUser.name } });
 });
 
 // ログイン
 router.post("/login", async (req, res) => {
-  const { email, password } = req.body;
-
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user || !user.password) {
-    return res.status(401).json({ error: "認証に失敗しました" });
+  const { email, password } = req.body ?? {};
+  if (!email || !password) {
+    return sendError(res, 400, "VALIDATION_ERROR", "email と password は必須です");
   }
 
-  const valid = await bcrypt.compare(password, user.password);
-  if (!valid) {
-    return res.status(401).json({ error: "認証に失敗しました" });
-  }
+  try {
+    const normalized = String(email).trim().toLowerCase();
+    const user = await prisma.user.findUnique({ where: { email: normalized } });
 
-  req.session.userId = user.id;
-  res.json({ message: "ログイン成功", user: { id: user.id, name: user.name } });
-});
+    if (!user || !user.hashed_password) {
+      return sendError(res, 401, "INVALID_CREDENTIALS", "メールまたはパスワードが違います");
+    }
 
-//セッション状態確認用（ログインチェック）
-router.get("/session", (req, res) => {
-  if (req.session.user) {
-    res.json({ user: req.session.user });
-  } else {
-    res.status(401).json({ error: "Not logged in" });
+    const ok = await bcrypt.compare(String(password), user.hashed_password);
+    if (!ok) {
+      return sendError(res, 401, "INVALID_CREDENTIALS", "メールまたはパスワードが違います");
+    }
+
+    (req.session as any).userId = user.id;
+    return res.json({ ok: true, user: { id: user.id, email: user.email, name: user.name } });
+  } catch (e) {
+    return sendError(res, 500, "DB_ERROR", "サーバー内部でエラーが発生しました");
   }
 });
 
 // ログアウト
 router.post("/logout", (req, res) => {
-  req.session.destroy((err) => {
-    if (err) {
-      console.error("セッション破棄に失敗:", err);
-      return res.status(500).json({ error: "ログアウトに失敗しました" });
-    }
-    res.clearCookie("connect.sid"); //ここでセッションクッキー削除
-    res.status(200).json({ message: "ログアウトしました" });
-  });
+  req.session = null as any;
+  res.json({ ok: true });
 });
 
 export default router;

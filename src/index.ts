@@ -1,8 +1,9 @@
 import express from "express";
 import dotenv from "dotenv";
-import session from "express-session";
+import cookieSession from "cookie-session";
 import bodyParser from "body-parser";
 import cors from "cors";
+
 import addressRoutes from "./routes/addresses.js";
 import ordersRoutes from "./routes/orders.js";
 import authRoutes from "./routes/auth.js";
@@ -15,6 +16,7 @@ dotenv.config();
 const app = express();
 const PORT = Number(process.env.PORT ?? 4000);
 const isProd = process.env.NODE_ENV === "production";
+
 app.set("trust proxy", 1);
 
 // Webhook(raw)を最優先
@@ -29,18 +31,21 @@ app.use(cors({ origin: ORIGIN, credentials: true }));
 app.use(express.json());
 
 app.use(
-  session({
-    secret: process.env.SESSION_SECRET!,
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: isProd ? "none" : "lax",
-      maxAge: 1000 * 60 * 60 * 24,
-    },
+  cookieSession({
+    name: "okome.sid",
+    keys: [process.env.SESSION_SECRET!],
+    httpOnly: true,
+    secure: isProd,
+    sameSite: "lax",
+    maxAge: 24 * 60 * 60 * 1000,
+    path: "/",
   })
 );
+
+app.use((req, _res, next) => {
+  if (!req.session) req.session = {} as any;
+  next();
+});
 
 app.use("/api/dev", devRoutes);
 
