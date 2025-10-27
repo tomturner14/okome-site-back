@@ -1,8 +1,10 @@
-import { Request, Response, NextFunction } from "express";
+import type { Request, Response, NextFunction } from "express";
+import { sendError } from "../lib/errors.js";
 
-export const requireUser = (req: Request, res: Response, next: NextFunction) => {
-  if (!req.session.userId) {
-    return res.status(401).json({ error: "未ログインです" });
-  }
+export function requireUser(req: Request, res: Response, next: NextFunction) {
+  const raw = req.session?.userId;
+  const userId = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(userId)) return sendError(res, "UNAUTHORIZED");
+  req.session.userId = userId; // number として再格納
   next();
-};
+}
