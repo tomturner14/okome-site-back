@@ -1,43 +1,61 @@
+// src/routes/orders.ts
 import { Router } from "express";
 import prisma from "../lib/prisma.js";
-import { orderSchema } from "../validators/order.js";
 import { requireUser } from "../middlewares/requireUser.js";
+import { sendError } from "../lib/errors.js";
 
 const router = Router();
 
+// すべて要ログイン
 router.use(requireUser);
 
-router.post("/", async (req, res) => {
-  const userId = req.session.userId!;
-  const parsed = orderSchema.safeParse(req.body);
+/**
+ * GET /api/orders
+ * ログインユーザーの注文一覧を返す
+ * 返却形はフロントの OrderSchema / OrdersResponseSchema と揃える
+ */
+router.get("/", async (req, res) => {
+  res.set("Cache-Control", "no-store");
 
-  if (!parsed.success) {
-    return res.status(400).json({ error: "バリデーション失敗", details: parsed.error.format() });
+  const userId = req.session.userId;
+  if (typeof userId !== "number") {
+    return sendError(res, "UNAUTHORIZED"); // 401
   }
 
-  const { address_id, total_price, shopify_order_id, ordered_at, items } = parsed.data;
-
-  const order = await prisma.order.create({
-    data: {
-      user_id: userId,
-      address_id,
-      total_price,
-      shopify_order_id,
-      ordered_at: new Date(ordered_at),
-      items: {
-        create: items.map((item) => ({
-          product_id: item.product_id,
-          title: item.title,
-          quantity: item.quantity,
-          price: item.price,
-          image_url: item.image_url,
-        })),
+  try {
+    const rows = await prisma.order.findMany({
+      where: { user_id: userId },
+      orderBy: { ordered_at: "desc" },
+      include: {
+        items: {
+          select: {
+            title: true,
+            quantity: true,
+            price: true,
+            image_url: true,
+          },
+        },
       },
-    },
-    include: { items: true },
-  });
+    });
 
-  res.status(201).json({ success: true, order });
+    const data = rows.map((o) => ({
+      id: o.id,
+      total_price: o.total_price,
+      status: String(o.status),
+      fulfill_status: String(o.fulfill_status),
+      ordered_at: o.ordered_at.toISOString(),
+      items: (o.items ?? []).map((i) => ({
+        title: i.title,
+        quantity: i.quantity,
+        price: i.price,
+        image_url: i.image_url ?? "",
+      })),
+    }));
+
+    return res.json(data);
+  } catch {
+    return sendError(res, "DB_ERROR");
+  }
 });
 
 export default router;
