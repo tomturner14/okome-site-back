@@ -30,6 +30,7 @@ model UserAddress {
   address_1      String
   address_2      String?
   phone          String
+  is_default     Boolean  @default(false) // ★ 追加
   created_at     DateTime @default(now())
   updated_at     DateTime @updatedAt
 
