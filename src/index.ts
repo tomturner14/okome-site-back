@@ -11,6 +11,7 @@ import usersRoutes from "./routes/users.js";
 import webhookRoutes from "./routes/webhook.js";
 import meRoutes from "./routes/me.js";
 import devRoutes from "./routes/dev.js";
+import shopifyRoutes from "./routes/shopify.js";
 
 dotenv.config();
 const app = express();
@@ -55,6 +56,7 @@ app.use("/api/addresses", addressRoutes);
 app.use("/api/orders", ordersRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/me", meRoutes);
+app.use("/api/shopify", shopifyRoutes);
 
 app.get("/", (_req, res) => {
   res.send("okome-site backend is running.");
