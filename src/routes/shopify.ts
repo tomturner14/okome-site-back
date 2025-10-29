@@ -46,6 +46,8 @@ async function callSF(query: string, variables: Record<string, unknown>) {
  * }
  * -> { url: string }
  */
+// src/routes/shopify.ts から抜粋（/checkout ハンドラを置き換え）
+
 router.post("/checkout", async (req, res) => {
   res.set("Cache-Control", "no-store");
 
@@ -53,72 +55,105 @@ router.post("/checkout", async (req, res) => {
     return sendError(res, "DB_ERROR", "Shopify 設定が不足しています");
   }
 
-  const bodyLines = Array.isArray(req.body?.lines) ? req.body.lines : [];
-  // どのキーでも受け取れるように正規化（merchandiseId / variantId / id の順）
-  const lines = bodyLines
-    .map((l: any) => ({
-      variantId: String(l?.merchandiseId ?? l?.variantId ?? l?.id ?? ""),
-      quantity: Number(l?.quantity ?? 1),
-    }))
-    .filter((l: any) => l.variantId && Number.isFinite(l.quantity) && l.quantity > 0);
+  // --- 入力の正規化 ---
+  const raw = (req.body ?? {}) as {
+    lines?: Array<{ variantId?: string; merchandiseId?: string; id?: string; quantity?: number }>;
+    email?: string;
+    note?: string; // 使わないが互換で受け取る
+    shippingAddress?: Record<string, unknown>;
+  };
 
-  if (lines.length === 0) {
+  if (!Array.isArray(raw.lines) || raw.lines.length === 0) {
     return sendError(res, "VALIDATION", "lines が不正です（variantId/merchandiseId が必須）");
   }
 
-  // shippingAddress は任意（最低限の項目のみ事前投入）
-  const shippingAddress =
-    req.body?.shippingAddress && typeof req.body.shippingAddress === "object"
-      ? req.body.shippingAddress
-      : undefined;
+  // merchandiseId（= ProductVariant の GID）にそろえる
+  const normLines = raw.lines
+    .map((l) => {
+      const id =
+        (l.merchandiseId as string) ||
+        (l.variantId as string) ||
+        (l.id as string) ||
+        "";
+      const qty = Number(l.quantity ?? 1);
+      return { merchandiseId: id, quantity: qty };
+    })
+    .filter((l) => l.merchandiseId && Number.isFinite(l.quantity) && l.quantity > 0);
 
-  // 備考は短く切り詰め（例: ユーザーIDの痕跡だけ残す）
-  const noteRaw = (req.body?.note ?? `uid:${req.session.userId}`) as string;
-  const note = noteRaw.slice(0, 250);
+  if (normLines.length === 0) {
+    return sendError(res, "VALIDATION", "lines が不正です（数量が不正など）");
+  }
 
-  const query = `
-    mutation checkoutCreate($input: CheckoutCreateInput!) {
-      checkoutCreate(input: $input) {
-        checkout { id webUrl }
-        userErrors { field message }
+  // --- GraphQL: cartCreate を使用 ---
+  const query = /* GraphQL */ `
+    mutation CartStart($input: CartInput) {
+      cartCreate(input: $input) {
+        cart {
+          id
+          checkoutUrl
+        }
+        userErrors {
+          field
+          code
+          message
+        }
       }
     }
   `;
 
+  // shippingAddress を CartInput の deliveryAddressPreferences にマッピング
+  const sa = raw.shippingAddress;
+  const deliveryPref =
+    sa && typeof sa === "object"
+      ? [
+        {
+          deliveryAddress: {
+            firstName: (sa as any).firstName ?? (sa as any).givenName ?? "",
+            lastName: (sa as any).lastName ?? (sa as any).familyName ?? "",
+            address1: (sa as any).address1 ?? "",
+            address2: (sa as any).address2 ?? "",
+            // 必要に応じて city/province/country/zip を付与
+            city: (sa as any).city ?? "",
+            province: (sa as any).province ?? "",
+            country: (sa as any).country ?? "JP",
+            zip: (sa as any).zip ?? (sa as any).postalCode ?? "",
+            phone: (sa as any).phone ?? "",
+          },
+        },
+      ]
+      : undefined;
+
   const input: Record<string, unknown> = {
-    note,
-    lineItems: lines, // {variantId, quantity}[]
+    lines: normLines, // ← CartLineInput の配列
+    buyerIdentity: raw.email ? { email: raw.email } : undefined,
+    deliveryAddressPreferences: deliveryPref,
+    // note は CartInput には無いので付けない（必要なら order メタで）
   };
-  if (shippingAddress) input.shippingAddress = shippingAddress;
 
   try {
-    const r = await callSF(query, { input });
+    const resp = await fetch(STOREFRONT_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Storefront-Access-Token": STOREFRONT_TOKEN,
+      },
+      body: JSON.stringify({ query, variables: { input } }),
+    });
 
-    // 通信レベルで非OK → ここで詳細を返す（原因がわかるように）
-    if (!r.ok) {
-      console.error("[shopify:checkout] HTTP NG", { status: r.status, raw: r.raw });
-      if (r.status === 401) {
-        return sendError(res, "UNAUTHORIZED", "Shopify 401 Unauthorized。Storefront Access Token / 権限を確認してください。");
-      }
-      return sendError(
-        res,
-        "EXTERNAL_API_ERROR",
-        `Shopify 応答エラー (${r.status}) ${r.raw?.slice(0, 500)}`
-      );
+    const json = await resp.json();
+
+    // GraphQL レベルの errors（配列）も見ておく
+    if (json?.errors?.length) {
+      const m = json.errors.map((e: any) => e.message).join("; ");
+      console.error("[shopify:checkout] GraphQL errors", json.errors);
+      return sendError(res, "EXTERNAL_API_ERROR", m || "Shopify GraphQL error");
     }
 
-    // GraphQL レスポンスにトップレベル errors がある場合
-    if (Array.isArray(r.json?.errors) && r.json.errors.length > 0) {
-      console.error("[shopify:checkout] GraphQL errors", r.json.errors);
-      return sendError(res, "EXTERNAL_API_ERROR", `GraphQL errors: ${JSON.stringify(r.json.errors).slice(0, 500)}`);
-    }
-
-    const payload = r.json?.data?.checkoutCreate;
-    const firstErr: string | undefined = payload?.userErrors?.[0]?.message;
-    const url: string | undefined = payload?.checkout?.webUrl;
+    const payload = json?.data?.cartCreate;
+    const firstErr = payload?.userErrors?.[0]?.message as string | undefined;
+    const url = payload?.cart?.checkoutUrl as string | undefined;
 
     if (firstErr) {
-      // ここは入力の妥当性エラー（例: variantId が販売停止など）
       return sendError(res, "VALIDATION", firstErr);
     }
     if (!url) {
@@ -126,8 +161,8 @@ router.post("/checkout", async (req, res) => {
     }
 
     return res.json({ url });
-  } catch (e: any) {
-    console.error("[shopify:checkout] exception", e);
+  } catch (e) {
+    console.error(e);
     return sendError(res, "DB_ERROR", "Shopify 連携に失敗しました");
   }
 });
