@@ -2,27 +2,40 @@
 import type { Response } from "express";
 
 export type ApiErrorCode =
-  | "INVALID_EMAIL_OR_PASSWORD"
-  | "EMAIL_ALREADY_REGISTERED"
-  | "WEAK_PASSWORD"
-  | "VALIDATION"
-  | "UNAUTHORIZED"
-  | "DB_ERROR";
+  | "VALIDATION"          // 入力不正
+  | "UNAUTHORIZED"        // 未ログイン / 認証不可
+  | "NOT_FOUND"           // 見つからない
+  | "DB_ERROR"            // サーバ内部 or DB
+  | "EXTERNAL_API_ERROR"; // 上流(Shopify等)のエラー
 
-export const ErrorCatalog: Record<ApiErrorCode, { status: number; message: string }> = {
-  INVALID_EMAIL_OR_PASSWORD: { status: 401, message: "メールまたはパスワードが違います" },
-  EMAIL_ALREADY_REGISTERED: { status: 409, message: "既に登録されています" },
-  WEAK_PASSWORD: { status: 400, message: "password は 6 文字以上にしてください" },
-  VALIDATION: { status: 400, message: "入力内容が不正です" },
-  UNAUTHORIZED: { status: 401, message: "ログインが必要です" },
-  DB_ERROR: { status: 500, message: "DB_ERROR" },
+const statusByCode: Record<ApiErrorCode, number> = {
+  VALIDATION: 400,
+  UNAUTHORIZED: 401,
+  NOT_FOUND: 404,
+  // 外部APIの失敗は 502 (Bad Gateway) を採用
+  EXTERNAL_API_ERROR: 502,
+  DB_ERROR: 500,
 };
 
-/**
- * 統一エラーレスポンス
- *  - 例: sendError(res, "VALIDATION", "email と password は必須です");
- */
-export function sendError(res: Response, code: ApiErrorCode, overrideMessage?: string) {
-  const item = ErrorCatalog[code];
-  return res.status(item.status).json({ error: overrideMessage ?? item.message, code });
+const defaultMessageByCode: Record<ApiErrorCode, string> = {
+  VALIDATION: "入力内容が不正です。",
+  UNAUTHORIZED: "認証が必要です。",
+  NOT_FOUND: "対象が見つかりません。",
+  EXTERNAL_API_ERROR: "外部サービスとの連携でエラーが発生しました。",
+  DB_ERROR: "サーバ内部でエラーが発生しました。",
+};
+
+export function sendError(
+  res: Response,
+  code: ApiErrorCode,
+  message?: string,
+  extra?: unknown
+) {
+  const status = statusByCode[code] ?? 500;
+  return res.status(status).json({
+    ok: false,
+    code,
+    message: message ?? defaultMessageByCode[code],
+    ...(extra !== undefined ? { extra } : {}),
+  });
 }

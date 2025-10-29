@@ -10,28 +10,81 @@ const router = Router();
 // 全ルート要ログイン
 router.use(requireUser);
 
-/** 住所一覧 */
+/** 住所一覧（既定→古い順） */
 router.get("/", async (req, res) => {
   res.set("Cache-Control", "no-store");
   const userId = req.session.userId as number;
 
-  const rows = await prisma.userAddress.findMany({
-    where: { user_id: userId },
-    orderBy: { created_at: "desc" },
-    select: {
-      id: true,
-      recipient_name: true,
-      postal_code: true,
-      address_1: true,
-      address_2: true,
-      phone: true,
-      is_default: true,
-      created_at: true,
-      updated_at: true,
-    },
-  });
+  try {
+    const rows = await prisma.userAddress.findMany({
+      where: { user_id: userId },
+      orderBy: [
+        { is_default: "desc" }, // 既定を先頭に
+        { created_at: "asc" },  // 古い順
+      ],
+      select: {
+        id: true,
+        recipient_name: true,
+        postal_code: true,
+        address_1: true,
+        address_2: true,
+        phone: true,
+        is_default: true,
+        created_at: true,
+        updated_at: true,
+      },
+    });
 
-  return res.json(rows);
+    // 返却形は従来どおり「配列」
+    return res.json(rows);
+  } catch {
+    return sendError(res, "DB_ERROR");
+  }
+});
+
+/** 既定住所を1件だけ返す（無ければ最古1件をフォールバック） */
+router.get("/default", async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const userId = req.session.userId as number;
+
+  try {
+    const def = await prisma.userAddress.findFirst({
+      where: { user_id: userId, is_default: true },
+      select: {
+        id: true,
+        recipient_name: true,
+        postal_code: true,
+        address_1: true,
+        address_2: true,
+        phone: true,
+        is_default: true,
+        created_at: true,
+        updated_at: true,
+      },
+    });
+
+    if (def) return res.json({ address: def });
+
+    const first = await prisma.userAddress.findFirst({
+      where: { user_id: userId },
+      orderBy: { created_at: "asc" },
+      select: {
+        id: true,
+        recipient_name: true,
+        postal_code: true,
+        address_1: true,
+        address_2: true,
+        phone: true,
+        is_default: true,
+        created_at: true,
+        updated_at: true,
+      },
+    });
+
+    return res.json({ address: first ?? null });
+  } catch {
+    return sendError(res, "DB_ERROR");
+  }
 });
 
 /** 新規登録（is_default はここでは触らない） */
@@ -134,7 +187,7 @@ router.put("/:id/default", async (req, res) => {
     if (!target) return sendError(res, "VALIDATION", "住所が存在しません");
 
     const updated = await prisma.$transaction(async (tx) => {
-      // まず全て false に
+      // まず他を false に
       await tx.userAddress.updateMany({
         where: { user_id: userId, NOT: { id } },
         data: { is_default: false },

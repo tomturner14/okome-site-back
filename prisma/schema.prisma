@@ -30,7 +30,7 @@ model UserAddress {
   address_1      String
   address_2      String?
   phone          String
-  is_default     Boolean  @default(false) // ★ 追加
+  is_default     Boolean  @default(false) // 既定フラグ
   created_at     DateTime @default(now())
   updated_at     DateTime @updatedAt
 
@@ -55,12 +55,14 @@ model Order {
   id               Int           @id @default(autoincrement())
   user_id          Int?
   address_id       Int?
-  shopify_order_id String        @unique
-  order_number     Int
+  // ▼ ここを nullable に変更（作成直後は未確定のため）
+  shopify_order_id String?       @unique
+  order_number     Int?
   total_price      Int
   status           OrderStatus   @default(pending)
   fulfill_status   FulfillStatus @default(unfulfilled)
-  ordered_at       DateTime
+  // ▼ 最初から値を入れなくて良いようにデフォルトを付与
+  ordered_at       DateTime      @default(now())
   cancelled_at     DateTime?
   fulfilled_at     DateTime?
   created_at       DateTime      @default(now())

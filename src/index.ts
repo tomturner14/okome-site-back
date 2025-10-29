@@ -13,6 +13,9 @@ import meRoutes from "./routes/me.js";
 import devRoutes from "./routes/dev.js";
 import shopifyRoutes from "./routes/shopify.js";
 
+import productsRoutes from "./routes/products.js";
+import cartRoutes from "./routes/cart.js";
+
 dotenv.config();
 const app = express();
 const PORT = Number(process.env.PORT ?? 4000);
@@ -20,7 +23,7 @@ const isProd = process.env.NODE_ENV === "production";
 
 app.set("trust proxy", 1);
 
-// Webhook(raw)を最優先
+// Webhook(raw)を最優先（他の bodyParser より先）
 app.use(["/api/webhook", "/webhook"], bodyParser.raw({ type: "*/*", limit: "2mb" }));
 app.use(["/api/webhook", "/webhook"], webhookRoutes);
 
@@ -43,14 +46,16 @@ app.use(
   })
 );
 
+// session 初期化（型安全のための保険）
 app.use((req, _res, next) => {
   if (!req.session) req.session = {} as any;
   next();
 });
 
+// 開発用
 app.use("/api/dev", devRoutes);
 
-// APIルート
+// ===== API ルート =====
 app.use("/api/auth", authRoutes);
 app.use("/api/addresses", addressRoutes);
 app.use("/api/orders", ordersRoutes);
@@ -58,6 +63,11 @@ app.use("/api/users", usersRoutes);
 app.use("/api/me", meRoutes);
 app.use("/api/shopify", shopifyRoutes);
 
+// ★ 追加: 商品一覧とカート
+app.use("/api/products", productsRoutes);
+app.use("/api/cart", cartRoutes);
+
+// ヘルスチェック
 app.get("/", (_req, res) => {
   res.send("okome-site backend is running.");
 });
