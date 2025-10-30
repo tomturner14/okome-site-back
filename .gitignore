@@ -1,7 +1,8 @@
+# ---- Env files (never commit) ----
+.env
+.env.*
+!.env.example
 
-/generated/prisma
-
-# local test fixtures
+# Local test fixtures
 shopify-sample.json
 fixtures/
-
