@@ -98,9 +98,8 @@ router.get("/", async (req: any, res) => {
 
 /**
  * GET /api/orders/:id
- * ログインユーザー自身の単一注文詳細を返す
  * 許可条件: (order.user_id === me) OR (order.user_id is null AND order.email === me.email)
- * 住所は address 関連が無ければ shipping_* スナップショットを address 形で返す
+ * 住所は address が無ければ shipping_* スナップショットを address 形で返す
  */
 router.get("/:id", async (req: any, res) => {
   res.set("Cache-Control", "no-store");
@@ -138,7 +137,6 @@ router.get("/:id", async (req: any, res) => {
       (!row.user_id && email && row.email === email);
     if (!canView) return sendError(res, "FORBIDDEN", "権限がありません");
 
-    // address が無ければ shipping_* スナップショットで代用（フロント互換shape）
     const address =
       row.address
         ? {
@@ -157,7 +155,7 @@ router.get("/:id", async (req: any, res) => {
           row.shipping_address_2 ||
           row.shipping_phone)
           ? {
-            id: null as any, // 紐付け無しのため
+            id: null as any,
             recipient_name: row.shipping_name ?? "",
             postal_code: row.shipping_postal_code ?? "",
             address_1: row.shipping_address_1 ?? "",
@@ -194,7 +192,7 @@ router.get("/:id", async (req: any, res) => {
 
 /**
  * POST /api/orders
- * （既存のまま）注文作成
+ * 注文作成（既存のまま）
  */
 router.post("/", async (req: any, res) => {
   res.set("Cache-Control", "no-store");
@@ -204,7 +202,6 @@ router.post("/", async (req: any, res) => {
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
     const resolvedAddressId = await resolveAddressId(userId, req.body?.address_id);
 
-    // 合計金額（明示指定がなければ items から算出）
     const bodyTotal = Number(req.body?.total_price);
     const itemsSum = items.reduce((acc: number, i: any) => {
       const q = Number(i?.quantity) || 1;
@@ -230,7 +227,10 @@ router.post("/", async (req: any, res) => {
             title: String(i?.title ?? ""),
             quantity: Number(i?.quantity) || 1,
             price: Number(i?.price) || 0,
-            image_url: typeof i?.image_url === "string" && i.image_url.length > 0 ? i.image_url : null,
+            image_url:
+              typeof i?.image_url === "string" && i.image_url.length > 0
+                ? i.image_url
+                : null,
           })),
         });
       }
@@ -294,7 +294,7 @@ router.post("/", async (req: any, res) => {
 
 /**
  * PATCH /api/orders/:id/address
- * （既存のまま）
+ * 既存注文の配送先を差し替え（ユーザー所有チェックあり）
  */
 router.patch("/:id/address", async (req: any, res) => {
   res.set("Cache-Control", "no-store");
@@ -316,6 +316,26 @@ router.patch("/:id/address", async (req: any, res) => {
       select: { id: true, address_id: true },
     });
     return res.json(updated);
+  } catch {
+    return sendError(res, "DB_ERROR");
+  }
+});
+
+/**
+ * POST /api/orders/claim
+ * メール一致の未ひも付け注文を、現在のユーザーに一括で引き取る
+ */
+router.post("/claim", async (req: any, res) => {
+  res.set("Cache-Control", "no-store");
+  const { userId, email } = await getCurrentUser(req);
+  if (!userId || !email) return sendError(res, "UNAUTHORIZED");
+
+  try {
+    const result = await prisma.order.updateMany({
+      where: { user_id: null, email },
+      data: { user_id: userId },
+    });
+    return res.json({ ok: true, claimed: result.count });
   } catch {
     return sendError(res, "DB_ERROR");
   }
