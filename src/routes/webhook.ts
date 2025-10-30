@@ -1,140 +1,187 @@
+// src/routes/webhook.ts
 import { Router } from "express";
 import crypto from "crypto";
 import prisma from "../lib/prisma.js";
 
 const router = Router();
-const SHOPIFY_WEBHOOK_SECRET = process.env.SHOPIFY_WEBHOOK_SECRET || "";
+
 const HDR_SIG = "X-Shopify-Hmac-Sha256";
 const HDR_TOPIC = "X-Shopify-Topic";
+const SECRET = process.env.SHOPIFY_WEBHOOK_SECRET || "";
+
+// 金額文字列 → Int（円）
+const yen = (v: any): number => {
+  if (v == null) return 0;
+  const n = Number.parseFloat(String(v));
+  if (Number.isNaN(n)) return 0;
+  return Math.round(n);
+};
+
+const toOrderStatus = (
+  financial_status?: string | null
+): "pending" | "paid" | "cancelled" => {
+  const fs = (financial_status || "").toLowerCase();
+  if (fs === "paid") return "paid";
+  if (fs === "refunded" || fs === "voided" || fs === "cancelled") return "cancelled";
+  return "pending";
+};
+
+const toFulfillStatus = (
+  fulfillment_status?: string | null
+): "unfulfilled" | "fulfilled" => {
+  const ff = (fulfillment_status || "").toLowerCase();
+  return ff === "fulfilled" ? "fulfilled" : "unfulfilled";
+};
 
 router.post("/", async (req, res) => {
-  if (!SHOPIFY_WEBHOOK_SECRET) return res.status(500).json({ error: "Missing secret" });
+  if (!SECRET) return res.status(500).json({ error: "Missing SHOPIFY_WEBHOOK_SECRET" });
 
-  // Bufferのまま来ているか確認（学習用ログ）
-  console.log("isBuffer:", Buffer.isBuffer((req as any).body));
+  // あなたの index.ts では bodyParser.raw を使うため req.body が Buffer
+  // （他環境でも動くよう rawBody → body(Buffer) の順でフォールバック）
+  const rawBody: Buffer | undefined =
+    (req as any).rawBody ?? (Buffer.isBuffer((req as any).body) ? (req as any).body : undefined);
 
   const hmacHeader = (req.get(HDR_SIG) || "").trim();
-  const topic = (req.get(HDR_TOPIC) || "unknown").trim();
+  const topic = (req.get(HDR_TOPIC) || "unknown").trim().toLowerCase();
 
-  const rawBody = (req as any).body as unknown;
-  if (!Buffer.isBuffer(rawBody)) {
+  if (!rawBody || !hmacHeader) {
     await prisma.webhookLog.create({
-      data: { topic, payload: { error: "rawBody not buffer" }, verified: false },
+      data: { topic, payload: { error: "no rawBody or signature" }, verified: false },
     });
-    return res.status(400).json({ error: "Raw body not available" });
+    return res.status(400).json({ error: "Invalid webhook (no raw body or hmac)" });
   }
 
-  // HMAC生成（Bufferのまま）
-  const digest = crypto.createHmac("sha256", SHOPIFY_WEBHOOK_SECRET).update(rawBody).digest("base64");
-  const sigBuf = Buffer.from(hmacHeader, "base64");
-  const digBuf = crypto.createHmac("sha256", SHOPIFY_WEBHOOK_SECRET)
-    .update(rawBody)
-    .digest();
-  const isVerified = sigBuf.length === digBuf.length && crypto.timingSafeEqual(sigBuf, digBuf);
+  // HMAC 検証（生ボディ）
+  const expectedB64 = crypto.createHmac("sha256", SECRET).update(rawBody).digest("base64");
+  const ok =
+    expectedB64.length === hmacHeader.length &&
+    crypto.timingSafeEqual(Buffer.from(expectedB64), Buffer.from(hmacHeader));
 
-  // まずはログ保存（検証可否を含めて追跡できるように）
-  let payload: any = {};
-  try { payload = JSON.parse(rawBody.toString("utf8")); } catch { payload = { raw: rawBody.toString("utf8") }; }
-  await prisma.webhookLog.create({ data: { topic, payload, verified: isVerified } });
+  // payload は rawBody からのパースを優先（raw運用の一貫性確保）
+  let payload: any;
+  try {
+    payload = JSON.parse(rawBody.toString("utf8"));
+  } catch {
+    payload = (req.body && typeof req.body === "object") ? req.body : {};
+  }
 
-  if (!isVerified) return res.status(401).json({ error: "Invalid webhook signature" });
+  // 監査ログ
+  await prisma.webhookLog.create({ data: { topic, payload, verified: ok } });
+
+  if (!ok) return res.status(401).json({ error: "Invalid webhook signature" });
 
   try {
-    if (topic === "orders/create") {
-      const shopifyId = String(payload.id);
-      const customer = payload.customer ?? {};
-      const shipping = payload.shipping_address ?? {};
-      const email = customer.email ?? `guest+${shopifyId}@example.invalid`;
+    if (topic === "orders/create" || topic === "orders/paid") {
+      const shopifyId: string = String(payload.id);
 
-      await prisma.$transaction(async (tx) => {
-        // ユーザーの取得と作成
-        let user = await tx.user.findUnique({ where: { email } });
-        if (!user) {
-          user = await tx.user.create({
-            data: {
-              email,
-              name: `${customer.last_name ?? ""} ${customer.first_name ?? ""}`.trim() || "ゲスト",
-              hashed_password: "",
-              phone: customer.phone ?? null,
-            },
-          });
-        }
+      // 主要フィールド
+      const email: string | null = payload.email ?? payload.contact_email ?? null; // ← 現在は nullable
+      const currency: string = payload.currency ?? "JPY";
+      const orderNumber: number | null = payload.order_number ?? null;
 
-        // 住所の取得と作成
-        let address = await tx.userAddress.findFirst({
-          where: {
-            user_id: user.id,
-            postal_code: shipping.zip ?? "",
-            address_1: shipping.address1 ?? "",
-            address_2: shipping.address2 ?? "",
-            recipient_name: shipping.name ?? "",
-          },
-        });
-        if (!address) {
-          address = await tx.userAddress.create({
-            data: {
-              user_id: user.id,
-              recipient_name: shipping.name ?? "",
-              postal_code: shipping.zip ?? "",
-              address_1: shipping.address1 ?? "",
-              address_2: shipping.address2 ?? "",
-              phone: shipping.phone ?? "",
-            },
-          });
-        }
+      const totalPriceYen = yen(payload.total_price ?? payload.current_total_price);
+      const orderedAt: Date | null =
+        payload.processed_at ? new Date(payload.processed_at)
+          : payload.created_at ? new Date(payload.created_at)
+            : null;
 
-        // Order（税込JPY整数）※同じ注文が来ても安全
-        const order = await tx.order.upsert({
+      const status = toOrderStatus(payload.financial_status);
+      const fulfill_status = toFulfillStatus(payload.fulfillment_status);
+
+      const shipping = payload.shipping_address ?? null;
+      const shipping_name =
+        shipping ? [shipping.first_name, shipping.last_name].filter(Boolean).join(" ") : null;
+
+      const lineItems: any[] = Array.isArray(payload.line_items) ? payload.line_items : [];
+
+      // メール一致で user_id をセット（見つからなければ null）
+      const user = email ? await prisma.user.findUnique({ where: { email } }) : null;
+
+      // upsert（冪等）→ items 全削除→再作成
+      const order = await prisma.$transaction(async (tx) => {
+        const upserted = await tx.order.upsert({
           where: { shopify_order_id: shopifyId },
-          update: {
-            order_number: payload.order_number,
-            total_price: Math.round(Number(payload.total_price)),
-            ordered_at: new Date(payload.created_at || Date.now()),
-            cancelled_at: payload.cancelled_at ? new Date(payload.cancelled_at) : null,
-            user_id: user.id,
-            address_id: address.id,
-          },
           create: {
             shopify_order_id: shopifyId,
-            order_number: payload.order_number,
-            total_price: Math.round(Number(payload.total_price)),
-            ordered_at: new Date(payload.created_at || Date.now()),
+            order_number: orderNumber ?? undefined,
+
+            user_id: user?.id ?? null,
+
+            email,           // nullable
+            currency,
+            total_price: totalPriceYen,
+
+            status,
+            fulfill_status,
+
+            ordered_at: orderedAt ?? undefined,
+            cancelled_at: payload.cancelled_at ? new Date(payload.cancelled_at) : undefined,
+            fulfilled_at: payload.closed_at ? new Date(payload.closed_at) : undefined,
+
+            // 配送先スナップショット
+            shipping_name,
+            shipping_phone: shipping?.phone ?? null,
+            shipping_postal_code: shipping?.zip ?? shipping?.postal_code ?? null,
+            shipping_address_1: shipping?.address1 ?? null,
+            shipping_address_2: shipping?.address2 ?? null,
+          },
+          update: {
+            order_number: orderNumber ?? undefined,
+
+            user_id: user?.id ?? null,
+
+            email,
+            currency,
+            total_price: totalPriceYen,
+
+            status,
+            fulfill_status,
+
+            ordered_at: orderedAt ?? undefined,
             cancelled_at: payload.cancelled_at ? new Date(payload.cancelled_at) : null,
-            user_id: user.id,
-            address_id: address.id,
-            status: "pending",
-            fulfill_status: "unfulfilled",
+            fulfilled_at: payload.closed_at ? new Date(payload.closed_at) : null,
+
+            shipping_name,
+            shipping_phone: shipping?.phone ?? null,
+            shipping_postal_code: shipping?.zip ?? shipping?.postal_code ?? null,
+            shipping_address_1: shipping?.address1 ?? null,
+            shipping_address_2: shipping?.address2 ?? null,
           },
         });
 
-        // Items（単価を整数円に丸めて保存）
-        await tx.orderItem.deleteMany({ where: { order_id: order.id } });
-        const items = (payload.line_items ?? []).map((item: any) => ({
-          order_id: order.id,
-          product_id: String(item.product_id),
-          title: item.title,
-          quantity: item.quantity,
-          price: Math.round(Number(item.price)),
-          image_url: "",
-        }));
-        if (items.length) await tx.orderItem.createMany({ data: items });
+        // Items 入れ替え
+        await tx.orderItem.deleteMany({ where: { order_id: upserted.id } });
 
-        console.log("Order upserted:", order.id);
+        if (lineItems.length) {
+          await tx.orderItem.createMany({
+            data: lineItems.map((li) => {
+              const lineId = li.id != null ? String(li.id) : "unknown";
+              const productId =
+                (li.product_id != null && String(li.product_id)) ||
+                (li.variant_id != null && String(li.variant_id)) ||
+                (li.sku ? String(li.sku) : `line-${lineId}`);
+
+              return {
+                order_id: upserted.id,
+                product_id: productId,          // 必須（空は避ける）
+                title: li.title ?? "item",
+                quantity: Number(li.quantity ?? 1),
+                price: yen(li.price),           // 単価（円）
+                image_url: li.image?.src ?? null,
+              };
+            }),
+          });
+        }
+
+        return upserted;
       });
-    }
-    else if (topic === "orders/paid") {
-      const shopifyId = String(payload.id);
-      try {
+
+      // orders/paid なら status を paid に寄せる（保険）
+      if (topic === "orders/paid" && order.status !== "paid") {
         await prisma.order.update({
           where: { shopify_order_id: shopifyId },
           data: { status: "paid" },
         });
-        console.log("Order paid:", shopifyId);
-      } catch {
-        await prisma.webhookLog.create({
-          data: { topic: "orders/paid:missing", payload: { shopifyId }, verified: true },
-        });
-        console.warn("orders/paid arrived before create:", shopifyId);
       }
     }
     else if (topic === "orders/cancelled") {
@@ -144,15 +191,13 @@ router.post("/", async (req, res) => {
           where: { shopify_order_id: shopifyId },
           data: {
             status: "cancelled",
-            cancelled_at: new Date(payload.cancelled_at || Date.now()),
+            cancelled_at: payload.cancelled_at ? new Date(payload.cancelled_at) : new Date(),
           },
         });
-        console.log("Order cancelled:", shopifyId);
       } catch {
         await prisma.webhookLog.create({
           data: { topic: "orders/cancelled:missing", payload: { shopifyId }, verified: true },
         });
-        console.warn("orders/cancelled arrived before create:", shopifyId);
       }
     }
 
