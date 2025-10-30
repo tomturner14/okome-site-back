@@ -1,2 +1,7 @@
 
 /generated/prisma
+
+# local test fixtures
+shopify-sample.json
+fixtures/
+
