@@ -9,6 +9,16 @@ const router = Router();
 // すべて認証必須
 router.use(requireUser);
 
+/** 現在ログイン中の userId と email を取得（session.email が無ければDBから引く） */
+async function getCurrentUser(req: any) {
+  const userId = req.session?.userId as number | undefined;
+  if (!userId) return { userId: undefined, email: undefined };
+  const sessionEmail = req.session?.email as string | undefined;
+  if (sessionEmail) return { userId, email: sessionEmail };
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+  return { userId, email: u?.email };
+}
+
 /** 内部: address_id を解決（指定が不正/未指定なら 既定→最古→null） */
 async function resolveAddressId(userId: number, requested?: unknown): Promise<number | null> {
   const reqId = Number(requested);
@@ -35,15 +45,23 @@ async function resolveAddressId(userId: number, requested?: unknown): Promise<nu
 
 /**
  * GET /api/orders
- * ログインユーザーの注文一覧
+ * ログインユーザーの注文一覧 + 「メール一致の未ひも付け」も表示
  */
-router.get("/", async (req, res) => {
+router.get("/", async (req: any, res) => {
   res.set("Cache-Control", "no-store");
   try {
-    const userId = req.session.userId as number;
+    const { userId, email } = await getCurrentUser(req);
+    if (!userId && !email) return sendError(res, "UNAUTHORIZED");
+
+    const where: any = {
+      OR: [
+        userId ? { user_id: userId } : undefined,
+        email ? { user_id: null, email } : undefined,
+      ].filter(Boolean),
+    };
 
     const rows = await prisma.order.findMany({
-      where: { user_id: userId },
+      where,
       orderBy: { ordered_at: "desc" },
       select: {
         id: true,
@@ -52,12 +70,7 @@ router.get("/", async (req, res) => {
         fulfill_status: true,
         ordered_at: true,
         items: {
-          select: {
-            title: true,
-            quantity: true,
-            price: true,
-            image_url: true,
-          },
+          select: { title: true, quantity: true, price: true, image_url: true },
         },
       },
     });
@@ -86,28 +99,23 @@ router.get("/", async (req, res) => {
 /**
  * GET /api/orders/:id
  * ログインユーザー自身の単一注文詳細を返す
+ * 許可条件: (order.user_id === me) OR (order.user_id is null AND order.email === me.email)
+ * 住所は address 関連が無ければ shipping_* スナップショットを address 形で返す
  */
-router.get("/:id", async (req, res) => {
+router.get("/:id", async (req: any, res) => {
   res.set("Cache-Control", "no-store");
 
-  const userId = req.session.userId as number;
+  const { userId, email } = await getCurrentUser(req);
+  if (!userId && !email) return sendError(res, "UNAUTHORIZED");
+
   const id = Number(req.params.id);
-  if (!Number.isFinite(id)) {
-    return sendError(res, "VALIDATION", "id が不正です");
-  }
+  if (!Number.isFinite(id)) return sendError(res, "VALIDATION", "id が不正です");
 
   try {
-    const row = await prisma.order.findFirst({
-      where: { id, user_id: userId },
+    const row = await prisma.order.findUnique({
+      where: { id },
       include: {
-        items: {
-          select: {
-            title: true,
-            quantity: true,
-            price: true,
-            image_url: true,
-          },
-        },
+        items: { select: { title: true, quantity: true, price: true, image_url: true } },
         address: {
           select: {
             id: true,
@@ -123,9 +131,42 @@ router.get("/:id", async (req, res) => {
       },
     });
 
-    if (!row) {
-      return sendError(res, "VALIDATION", "注文が見つかりません");
-    }
+    if (!row) return sendError(res, "VALIDATION", "注文が見つかりません");
+
+    const canView =
+      (userId && row.user_id === userId) ||
+      (!row.user_id && email && row.email === email);
+    if (!canView) return sendError(res, "FORBIDDEN", "権限がありません");
+
+    // address が無ければ shipping_* スナップショットで代用（フロント互換shape）
+    const address =
+      row.address
+        ? {
+          id: row.address.id,
+          recipient_name: row.address.recipient_name,
+          postal_code: row.address.postal_code,
+          address_1: row.address.address_1,
+          address_2: row.address.address_2 ?? "",
+          phone: row.address.phone,
+          created_at: row.address.created_at.toISOString(),
+          updated_at: row.address.updated_at.toISOString(),
+        }
+        : (row.shipping_name ||
+          row.shipping_postal_code ||
+          row.shipping_address_1 ||
+          row.shipping_address_2 ||
+          row.shipping_phone)
+          ? {
+            id: null as any, // 紐付け無しのため
+            recipient_name: row.shipping_name ?? "",
+            postal_code: row.shipping_postal_code ?? "",
+            address_1: row.shipping_address_1 ?? "",
+            address_2: row.shipping_address_2 ?? "",
+            phone: row.shipping_phone ?? "",
+            created_at: row.ordered_at.toISOString(),
+            updated_at: row.updated_at.toISOString(),
+          }
+          : null;
 
     const data = {
       id: row.id,
@@ -142,18 +183,7 @@ router.get("/:id", async (req, res) => {
           price: i.price,
           image_url: i.image_url ?? "",
         })) ?? [],
-      address: row.address
-        ? {
-          id: row.address.id,
-          recipient_name: row.address.recipient_name,
-          postal_code: row.address.postal_code,
-          address_1: row.address.address_1,
-          address_2: row.address.address_2 ?? "",
-          phone: row.address.phone,
-          created_at: row.address.created_at.toISOString(),
-          updated_at: row.address.updated_at.toISOString(),
-        }
-        : null,
+      address,
     };
 
     return res.json(data);
@@ -164,14 +194,9 @@ router.get("/:id", async (req, res) => {
 
 /**
  * POST /api/orders
- * 注文作成（address_id 未指定なら 既定→最古→null を自動適用）
- * body: {
- *   items?: { title:string; quantity:number; price:number; image_url?:string }[],
- *   address_id?: number,
- *   total_price?: number // 無ければ items から合計
- * }
+ * （既存のまま）注文作成
  */
-router.post("/", async (req, res) => {
+router.post("/", async (req: any, res) => {
   res.set("Cache-Control", "no-store");
   const userId = req.session.userId as number;
 
@@ -188,14 +213,12 @@ router.post("/", async (req, res) => {
     }, 0);
     const totalPrice = Number.isFinite(bodyTotal) ? bodyTotal : itemsSum;
 
-    // 作成〜子アイテム登録までトランザクション
     const created = await prisma.$transaction(async (tx) => {
       const order = await tx.order.create({
         data: {
           user_id: userId,
-          address_id: resolvedAddressId, // null 可（住所未登録のユーザー）
+          address_id: resolvedAddressId,
           total_price: totalPrice,
-          // status / fulfill_status / ordered_at は Prisma の既定に任せる
         },
         select: { id: true },
       });
@@ -207,26 +230,15 @@ router.post("/", async (req, res) => {
             title: String(i?.title ?? ""),
             quantity: Number(i?.quantity) || 1,
             price: Number(i?.price) || 0,
-            image_url:
-              typeof i?.image_url === "string" && i.image_url.length > 0
-                ? i.image_url
-                : null,
+            image_url: typeof i?.image_url === "string" && i.image_url.length > 0 ? i.image_url : null,
           })),
         });
       }
 
-      // 返却は GET /:id と同等の形で
       const row = await tx.order.findUnique({
         where: { id: order.id },
         include: {
-          items: {
-            select: {
-              title: true,
-              quantity: true,
-              price: true,
-              image_url: true,
-            },
-          },
+          items: { select: { title: true, quantity: true, price: true, image_url: true } },
           address: {
             select: {
               id: true,
@@ -282,10 +294,9 @@ router.post("/", async (req, res) => {
 
 /**
  * PATCH /api/orders/:id/address
- * 既存注文の配送先を差し替え（ユーザー所有チェックあり）
- * body: { address_id: number }
+ * （既存のまま）
  */
-router.patch("/:id/address", async (req, res) => {
+router.patch("/:id/address", async (req: any, res) => {
   res.set("Cache-Control", "no-store");
   const userId = req.session.userId as number;
   const id = Number(req.params.id);
