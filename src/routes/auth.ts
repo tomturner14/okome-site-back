@@ -12,14 +12,14 @@ router.post("/register", async (req, res) => {
     return sendError(res, "VALIDATION", "email と password は必須です");
   }
   if (String(password).length < 6) {
-    return sendError(res, "WEAK_PASSWORD");
+    return sendError(res, "VALIDATION", "パスワードは6文字以上にしてください");
   }
 
   try {
     const normalized = String(email).trim().toLowerCase();
     const existing = await prisma.user.findUnique({ where: { email: normalized } });
     if (existing) {
-      return sendError(res, "EMAIL_ALREADY_REGISTERED");
+      return sendError(res, "VALIDATION", "既に登録済みのメールアドレスです");
     }
 
     const hashed_password = await bcrypt.hash(String(password), 12);
@@ -28,7 +28,10 @@ router.post("/register", async (req, res) => {
       select: { id: true, email: true, name: true },
     });
 
+    // セッション保存（メールも保持しておくと「メール一致の未ひも付けオーダー」表示が安定）
     (req.session as any).userId = user.id;
+    (req.session as any).email = user.email;
+
     return res.json({ ok: true, user });
   } catch {
     return sendError(res, "DB_ERROR");
@@ -47,15 +50,16 @@ router.post("/login", async (req, res) => {
     const user = await prisma.user.findUnique({ where: { email: normalized } });
 
     if (!user || !user.hashed_password) {
-      return sendError(res, "INVALID_EMAIL_OR_PASSWORD");
+      return sendError(res, "UNAUTHORIZED", "メールアドレスまたはパスワードが正しくありません");
     }
 
     const ok = await bcrypt.compare(String(password), user.hashed_password);
     if (!ok) {
-      return sendError(res, "INVALID_EMAIL_OR_PASSWORD");
+      return sendError(res, "UNAUTHORIZED", "メールアドレスまたはパスワードが正しくありません");
     }
 
     (req.session as any).userId = user.id;
+    (req.session as any).email = user.email;
     return res.json({ ok: true, user: { id: user.id, email: user.email, name: user.name } });
   } catch {
     return sendError(res, "DB_ERROR");
